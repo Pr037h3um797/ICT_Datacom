@@ -1,0 +1,9 @@
+*.pdf
+/资料
+*.xlsx
+*.docx
+*.doc
+*.xls
+*.ppt
+*.pptx
+cache.*
