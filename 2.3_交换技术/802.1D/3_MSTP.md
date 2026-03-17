@@ -70,6 +70,9 @@ MSTI实现基于VLAN的负载分担，冗余优化，充分利用网络中的多
 
     特殊实例，每个MSTR都强制存在的默认实例，ID固定为0。
 
+#### * **VLAN映射表**
+MSTR的一个属性，用来描述VLAN和MSTI之间的映射关系。
+![alt text](picture/MSTPVLAN映射表.png)
 #### * **IST（Internal Spanning Tree内部生成树）**
   * Instance 0，每个MST域都强制存在的默认实例
   * 作用：
@@ -213,7 +216,7 @@ MSTP BPDU基本可以分为三部分：通用部分，MST配置信息，MST实�
     *   **MST Configuration Identifier MST配置标识符 (51字节)**
         *   **定义**：**MSTP特有**。用于判断交换机是否属于同一个MST域的“指纹”，包含4个子部分：
             *   **Configuration Identifier Format Selector 配置标识格式选择符 (1字节)**：固定为`0x00`。
-            *   **Configuration Name 配置名称 (32字节)**：可读的MST域名。
+            *   **Configuration Name 配置名称/域名 (32字节)**：可读的MST域名。
             *   **Revision Level 修订级别 (2字节)**：无符号整数，用于标识配置版本。
             *   **Configuration Digest 配置摘要 (16字节)**：由VLAN与MSTI映射关系计算出的MD5哈希值。
 
@@ -267,6 +270,14 @@ MSTP中的桥角色（RB、备份RB、NRB），在CIST、各MSTI中独立选举�
 
 * **CIST指定桥**、**MSTI指定桥**
 
+下表为《H3C生成树协议技术白皮书-6W100》定义。
+
+|分类|指定桥|指定接口|
+|:----:|:-----:|:-------:|
+|对于一台设备而言|与本机直接相连并且负责向本机转发BPDU的设备|指定桥向本机转发BPDU的端口|
+|对于一个局域网而言|负责向本网段转发BPDU的设备|指定桥向本网段转发BPDU的端口|
+
+
   **注意**：<font color="red">指定桥的选举范围在一个“网段”中，但不是L3的子网概念。<br></font>
   生成树协议中的网段，指的是“桥接段”，“链路段”，“物理段”在点对点全双工链路上，网段指的就是一条单独的链路，在技术文档中，不应当使用”网段“来指代生成树协议中的这一概念。<br>
   在早期集线器型共享式以太网，一个“冲突域”就是一个物理链路网段，生成树协议在这个段上选举指定端口。
@@ -315,15 +326,17 @@ CIST RB和CIST Region RB选举完成后，选举CIST指定桥和
 4. BID相同选举发送端口ID.
 
 
-### 2.4 MSSTP 端口端口角色
-* **基础角色** (每个实例独立计算)
+### 2.4 MSTP 端口端口角色
+* **基础角色** (每个实例独立计算)详见RSTP
   * Root Port 根端口
     * 在NRB上，离RB最近的端口，是本交换机的RP，负责向根方向转发数据。
   * Designated Port 指定端口
-    * 负责转发流量与BPDU的端口
+    * 负责转发流量与BPDU的端口。
   * Alternate Port 替代端口
-    * 
+    * 一个端口接收到的BPDU等于或优于根端口保存的BPDU，而这个端口又不是根桥，则成为AP，作为根桥的备份。
   * Backup Port 备份端口
+    * 一个端口收到本交换机从另一个端口发出的BPDU，说明此端口产生环路。
+    * 作为指定端口的备份，为连接下游交换机提供备份链路。
 
 
 * **特殊角色** (CIST 层面)
@@ -337,9 +350,11 @@ CIST RB和CIST Region RB选举完成后，选举CIST指定桥和
     * 定义：连接终端设备的端口
     * 快速转发机制
 
+### 2.5 MSTP 端口状态。
+MSTP中的端口状态有三种，详解RSTP。同一端口在不同MSTI中的端口状态可以不同。
 
 
-### 2.5 路径开销计算模型
+### 2.6 路径开销计算模型
 * **外部路径开销**
   * 从主桥到 CIST 总根的域间开销
   * 用于主桥选举
@@ -387,158 +402,24 @@ MSTI 3: VLAN 50*60 *> 根桥在 SW3
 
 ### 3.3 兼容性与互操作
 * **与 RSTP/STP 的兼容**
-  * 端口自动切换模式
-  * 边界端口行为模拟
+  * MSTP端口检测BPDU类型，可运行在不同模式上。
+  * 域边界端口行为模拟
+    * 对外，每个MSTR，向STP/RSTP设备，表现为一个运行在CIST上的虚拟交换机
+    * 对内，向MSTR内部，传递各MSTI拓扑信息。
+    * 所有VLAN流量，离开MSTR时i，汇聚到CIST路径上。
   * BPDU 格式转换
-* **混合网络部署考虑**
-  * 性能影响：快速收敛可能失效
-  * 设计建议：尽量避免混合部署
-* **多厂商互通**
-  * 标准 MSTP 的互通性
-  * 私有协议的互通挑战
+* **混合网络**
+  * 快速收敛，负载均衡可能失效
 
 ---
 ---
 ---
 
-## **第四章：MSTP 配置与部署**
+## **附录：几个表**
 
-### 4.1 基础配置步骤
-```bash
-1. 启用 MSTP
-   stp mode mstp
-   
-2. 进入域配置视图
-   stp region*configuration
-   
-3. 配置域参数
-   region*name <NAME>
-   revision*level <1*65535>
-   
-4. 配置 VLAN*实例映射
-   instance 1 vlan 10 to 20
-   instance 2 vlan 30 to 40
-   # 未映射的 VLAN 默认在 Instance 0
-   
-5. 激活配置
-   active region*configuration
-   
-6. 配置实例根桥
-   stp instance 1 root primary
-   stp instance 2 root secondary
-   
-7. 配置端口属性
-   interface <interface>
-     stp edged*port enable
-     stp point*to*point force*true
-```
-
-### 4.2 高级配置选项
-* **优先级调整**
-  * CIST 优先级与实例优先级分离
-  * 端口优先级与路径开销调整
-* **计时器优化**
-  * Hello Time 调整
-  * Forward Delay 优化
-  * Max Age 设置
-* **保护机制**
-  * BPDU 保护
-  * 根保护
-  * 环路保护
-  * TC*BPDU 保护
-
-### 4.3 多域网络设计
-* **单域设计** (推荐)
-  * 管理简单
-  * 收敛快速
-  * 配置一致性易保证
-* **多域设计**
-  * 适用场景：大规模网络、多管理域
-  * 设计要点：域边界规划、CST 优化
-  * 挑战：配置复杂度增加
-
-## **第五章：验证、排错与最佳实践**
-
-### 5.1 状态查看命令
-```bash
-# 查看域配置
-display stp region*configuration
-
-# 查看所有实例摘要
-display stp brief
-# 输出示例：
-# MSTID  Port    Role  STP State   Protection
-#   0    Gig0/1  DESI  FORWARDING  NONE
-#   1    Gig0/1  DESI  FORWARDING  NONE
-#   2    Gig0/1  ROOT  FORWARDING  NONE
-
-# 查看指定实例详细信息
-display stp instance 1
-
-# 查看端口详细信息
-display stp interface GigabitEthernet 0/1
-
-# 查看根桥信息
-display stp root
-```
-
-### 5.2 故障排除流程
-1. **域不一致问题**
-   * 症状：设备间不能形成正确拓扑
-   * 检查：`display stp region*configuration` 对比
-   * 解决：统一域名、修订级别、VLAN 映射
-
-2. **负载均衡失效**
-   * 症状：流量未按预期路径转发
-   * 检查：各实例根桥位置、端口角色
-   * 验证：`display stp brief` 查看各实例端口状态
-
-3. **收敛速度慢**
-   * 检查：P/A 机制是否生效
-   * 验证：点对点链路配置
-   * 排查：是否有 STP 设备混入
-
-4. **环路问题**
-   * 检查：保护机制是否启用
-   * 验证：边缘端口配置
-   * 排查：物理连接错误
-
-### 5.3 最佳实践总结
-* **设计原则**
-  * 尽量使用单 MST 域
-  * 合理规划实例数量 (通常 2*4 个足够)
-  * 明确 VLAN 分组策略
-* **配置规范**
-  * 统一域名、修订级别
-  * 文档化 VLAN*实例映射表
-  * 标准化根桥/备根桥规划
-* **运维建议**
-  * 变更前验证配置一致性
-  * 启用必要的保护机制
-  * 定期审计生成树状态
-
-## **第六章：进阶主题与扩展**
-
-### 6.1 MSTP 性能优化
-* 实例数量对性能的影响
-* 大规模网络中的 MSTP 设计
-* 与链路聚合 (LACP) 的配合
-
-### 6.2 高可用性设计
-* 多根桥备份策略
-* 快速收敛的极限优化
-* 与 VRRP/HSRP 的联动
-
-### 6.3 与新兴技术融合
-* SDN 环境中的 MSTP
-* 云数据中心的应用
-* 与 EVPN/VxLAN 的共存
-
-## **附录：关键对比与总结表**
-
-### 生成树协议家族对比
+### 生成树协议
 | 特性 | STP (802.1D) | RSTP (802.1W) | MSTP (802.1s) |
-|******|**************|***************|***************|
+|------|--------------|---------------|---------------|
 | 收敛时间 | 30*50秒 | 1*2秒 | 1*2秒 |
 | 负载均衡 | 不支持 | 不支持 | 支持 |
 | BPDU发送 | 仅根桥 | 所有桥 | 所有桥 |
@@ -546,9 +427,9 @@ display stp root
 | 实例数量 | 1 | 1 | 多个 |
 | 资源消耗 | 低 | 低 | 中 |
 
-### MSTP 关键术语速查
+### MSTP 术语
 | 术语 | 全称 | 说明 |
-|******|******|******|
+|------|------|-----|
 | MST Region | Multiple Spanning Tree Region | 多生成树域 |
 | MSTI | Multiple Spanning Tree Instance | 多生成树实例 |
 | IST | Internal Spanning Tree | 内部生成树 (Instance 0) |
@@ -558,11 +439,3 @@ display stp root
 | Master Port | 主端口 | 域到 CIST 总根的最优端口 |
 
 ***
-
-**使用建议**：
-1. 按章节顺序系统学习
-2. 结合实验环境验证每个概念
-3. 重点掌握：第二章(机制)、第三章(负载均衡)、第五章(排错)
-4. 定期回顾对比表，强化区别记忆
-
-这个大纲覆盖了 MSTP 从基础到高级的所有关键知识点，您可以根据这个框架整理和完善您的笔记。
